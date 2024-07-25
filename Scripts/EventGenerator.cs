@@ -91,8 +91,12 @@ public class EventGenerator : MonoBehaviour
 
             if (randomValue <= cumulative) // Check if the random value is less than or equal to the cumulative probability
             {
+                //Random text color
+                string[] colors = { "green", "red", "blue", "yellow", "orange", "purple" };
+                string randomColor = colors[UnityEngine.Random.Range(0, colors.Length)];
+
                 // Log the event
-                log.LogEvent(gameEvent.logText, textPrefab);
+                log.LogEvent(gameEvent.logText, randomColor, textPrefab);
 
                 // Apply the effects of the event on the player
                 foreach (var effect in gameEvent.EffectsOnPlayer)
@@ -111,12 +115,16 @@ public class EventGenerator : MonoBehaviour
 
 public class GenerateLog
 {
-    public void LogEvent(string logText, GameObject textPrefab)
+    public void LogEvent(string logText, string Color, GameObject textPrefab)
     {
         //Format if text is interpolated
         //Create a new text object
         GameObject newText = UnityEngine.Object.Instantiate(textPrefab, GameObject.FindWithTag("LogText").transform);
         newText.GetComponentInChildren<TMPro.TMP_Text>().text = logText;
+        //Convert the color string to a color
+        Color color;
+        ColorUtility.TryParseHtmlString(Color, out color);
+        newText.GetComponentInChildren<TMPro.TMP_Text>().color = color;
     }
 
 }

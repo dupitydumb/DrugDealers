@@ -1,0 +1,16 @@
+{
+  "messages": [
+    "Customer bought {0} for ${1}.",
+    "She runs away with {0} in her hands, leaving ${1} behind.",
+    "He hands over ${1} and takes {0} with a smile.",
+    "He hand you ${1} and takes {0} with a grin.",
+    "She hands you phone worth ${1} and takes {0}",
+    "He hands you a watch worth ${1} and takes {0}",
+    "Police arrives and takes {0} and leaves ${1} behind.",
+    "Hoddie man takes {0} and leaves ${1} behind.",
+    "Weird DND character takes {0} and leaves ${1} behind.",
+    "A customer with a parrot on his shoulder takes {0} and leaves ${1} behind.",
+    "A customer with a cat in his bag takes {0} and leaves ${1} behind.",
+    "A weebo customer takes {0} and leaves ${1} behind."
+  ]
+}

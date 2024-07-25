@@ -6,6 +6,12 @@ using Random = UnityEngine.Random;
 using System.Linq;
 using System.Threading.Tasks;
 
+
+[Serializable]
+public class MessageWrapper
+{
+    public string[] messages;
+}
 public class Manager : MonoBehaviour
 {
     public static Manager Instance { get; private set; }
@@ -45,6 +51,32 @@ public class Manager : MonoBehaviour
         OnInventoryChange += UpdatePlayerInventory;
         OnFundsChange += player.UpdateFundsText;
         StartCoroutine(GenerateCustomerRoutine());
+        logTemplates = LoadMessagesFromFile("logTemplates.json");
+    }
+
+    public List<string> LoadMessagesFromFile(string fileName)
+    {
+        TextAsset textAsset = Resources.Load<TextAsset>($"Messages/{fileName.Replace(".json", "")}");
+        if (textAsset != null)
+        {
+            // Deserialize the JSON content into the MessageWrapper class
+            MessageWrapper messageWrapper = JsonUtility.FromJson<MessageWrapper>(textAsset.text);
+            if (messageWrapper != null && messageWrapper.messages != null)
+            {
+                // Convert the array to a list and return
+                return new List<string>(messageWrapper.messages);
+            }
+            else
+            {
+                Debug.LogError("Failed to deserialize " + fileName);
+                return new List<string>();
+            }
+        }
+        else
+        {
+            Debug.LogError("Failed to load " + fileName);
+            return new List<string>();
+        }
     }
 
     // Update is called once per frame
@@ -66,6 +98,12 @@ public class Manager : MonoBehaviour
         drugs.Add(new Drug(0.8f, "Fentanyl", 80, 85, 8, 10));
         drugs.Add(new Drug(0.9f, "Heroin", 90, 95, 9, 10));
         drugs.Add(new Drug(1f, "Carfentanil", 100, 105, 10, 10));
+        // add more
+        drugs.Add(new Drug(0.1f, "Cocaine", 10, 15, 1, 10));
+        drugs.Add(new Drug(0.2f, "LSD", 20, 25, 2, 10));
+        drugs.Add(new Drug(0.3f, "MDMA", 30, 35, 3, 10));
+        drugs.Add(new Drug(0.4f, "Methamphetamine", 40, 45, 4, 10));
+        
 
     }
     void GenerateDrug(int numberOfDrugs)
@@ -107,25 +145,18 @@ public class Manager : MonoBehaviour
     {
         while (true)
         {
-            yield return new WaitForSeconds(Random.Range(10, 20));
+            yield return new WaitForSeconds(Random.Range(5, 15));
             GenerateCustomer();
         }
     }
 
+    private List<string> logTemplates = new List<string>();
     void GenerateCustomer()
     {
         //Generate a customer with random max budget and preferred quality
         float randomMaxBudget = Random.Range(50, 300);
         int randomPreferredQuality = Random.Range(1, 5);
         // List of funny and dynamic log templates
-        List<string> logTemplates = new List<string>
-        {
-            "A customer strolls in with ${0} jingling in their pocket, eyeing quality {1} goods.",
-            "Someone with ${0} to burn is looking for the good stuff. Quality {1}, or bust!",
-            "Here comes a high roller! Wants nothing but quality {1} and has ${0} to prove it.",
-            "With ${0} in their wallet, this customer won’t settle for less than quality {1}.",
-            "A wild customer appears! They have ${0} and a craving for quality {1} products."
-        };
         // Select a random template
         string selectedTemplate = logTemplates[Random.Range(0, logTemplates.Count)];
 
@@ -133,10 +164,12 @@ public class Manager : MonoBehaviour
         string logMessage = string.Format(selectedTemplate, randomMaxBudget, randomPreferredQuality);
 
         // Log the dynamic and funny message
-        EventGenerator.Instance.log.LogEvent(logMessage, EventGenerator.Instance.textPrefab);
+        EventGenerator.Instance.log.LogEvent(logMessage, "#FFFFFF", EventGenerator.Instance.textPrefab);
 
+        //randomize the customer' preferred rarity
+        float randomPreferredRarity = Random.Range(0f, 1f);
         // Generate the customer object (assuming this part remains unchanged)
-        Customer customer = new Customer(randomMaxBudget, randomPreferredQuality);
+        Customer customer = new Customer(randomMaxBudget, randomPreferredQuality, randomPreferredRarity);
     }
 
     void SortTheMarket()
@@ -256,7 +289,7 @@ public class Drug
     {
         //Randomize the purchase and sell prices, take the quality into account. the higher the quality, the higher the price and vice versa
         PurchasePrice += Random.Range(-10, 10) + Quality * 0.5f;
-        SellPrice += Random.Range(-10, 10) + Quality * 0.8f;
+        SellPrice = PurchasePrice * 1.25f + Quality * 0.2f;
     }
 }
 
@@ -291,13 +324,31 @@ public class Market
 
 
         }
-
+        Manager.Instance.OnMarketChange?.Invoke();
         Manager.Instance.OnFundsChange?.Invoke();
         
     }
 
     public void SellDrug(Drug drug, Player player)
     {
+        if (player.Inventory.Contains(drug) && drug.Quantity > 0)
+        {
+            Debug.Log("Selling : " + drug.Name);
+            player.Funds += drug.SellPrice;
+            player.Inventory.Find(d => d.Name == drug.Name).Quantity--;
+            if (player.Inventory.Find(d => d.Name == drug.Name).Quantity == 0)
+            {
+                player.Inventory.Remove(drug);
+            }
+        }
+        Manager.Instance.OnMarketChange?.Invoke();
+        Manager.Instance.OnFundsChange?.Invoke();
+    }
+
+    public void CustomerBuy(Drug drug, Player player)
+    {
+
+        int indexInInventory = player.Inventory.FindIndex(d => d.Name == drug.Name && d.Quality >= drug.Quality);
         if (player.Inventory.Contains(drug) && drug.Quantity > 0)
         {
             player.Funds += drug.SellPrice;
@@ -307,7 +358,19 @@ public class Market
                 player.Inventory.Remove(drug);
             }
         }
-
+        //if customer buys the drug, decrease the quantity of the drug in the inventory
+        //If specific drug is not available in the inventory, searchf for the same name and better quality and sell it to the customer
+        else if (player.Inventory.Exists(d => d.Name == drug.Name && d.Quality >= drug.Quality))
+        {
+            player.Funds += player.Inventory.Find(d => d.Name == drug.Name && d.Quality >= drug.Quality).SellPrice;
+            player.Inventory.Find(d => d.Name == drug.Name && d.Quality >= drug.Quality).Quantity--;
+            if (player.Inventory.Find(d => d.Name == drug.Name && d.Quality >= drug.Quality).Quantity == 0)
+            {
+                player.Inventory.Remove(drug);
+            }
+        }
+        Manager.Instance.OnInventoryChange?.Invoke();
+        Manager.Instance.OnMarketChange?.Invoke();
         Manager.Instance.OnFundsChange?.Invoke();
     }
 
@@ -327,11 +390,18 @@ public class Player
     {
         fundsText = GameObject.Find("FundsText").GetComponent<TMPro.TMP_Text>();
         Manager.Instance.onPriceChange += UpdateFundsText;
+        Manager.Instance.OnInventoryChange += CleanInventory;
 
     }
     public Player(float funds)
     {
         Funds = funds;
+    }
+
+    public void CleanInventory()
+    {
+        //if the quantity of the drug is 0, remove the drug from the inventory
+        Inventory.RemoveAll(d => d.Quantity <= 0);
     }
 
     public void UpdateFundsText()
@@ -344,116 +414,86 @@ public class Customer
 {
     public float maxBudget;
     public int preferredQuality;
-    public float preferredRarity = 0.1f; // Default value for preferredRarity
+    public float preferredRarity;
 
-    public Customer(float maxBudget, int preferredQuality)
+    public List<string> boughtMessages = new List<string>();
+    public List<string> notBoughtMessages = new List<string>();
+    public List<string> tooExpensiveMessages = new List<string>();
+    
+    private Drug selectedDrug;
+    List<Drug> marketDrugs = Manager.Instance.market.AvailableDrugs;
+    public Customer(float maxBudget, int preferredQuality, float preferredRarity = 0.5f)
     {
         this.maxBudget = maxBudget;
         this.preferredQuality = preferredQuality;
-        Debug.Log("Customer created");
         
+        // Calculate weights based on rarity difference
+        var weights = marketDrugs.Select(d => 1 / (1 + Mathf.Abs(d.Rarity - preferredRarity))).ToList();
+        float totalWeight = weights.Sum();
+
+        // Normalize weights
+        var normalizedWeights = weights.Select(w => w / totalWeight).ToList();
+        // Select drugs based on normalized weights
+        List<Drug> selectedDrugs = new List<Drug>();
+        foreach (var drug in marketDrugs)
+        {
+            int index = marketDrugs.IndexOf(drug);
+            float randomValue = Random.value; // Get a random value between 0 and 1
+            if (randomValue < normalizedWeights[index] && drug.SellPrice <= maxBudget)
+            {
+                selectedDrugs.Add(drug);
+                Debug.Log("adding + " + drug.Name);
+            }
+        }
+
+        // Select a random drug from the selected drugs
+        if (selectedDrugs.Count > 0)
+        {
+            selectedDrug = selectedDrugs[Random.Range(0, selectedDrugs.Count)];
+        }
+        else
+        {
+            //Search through the player's inventory and find cheapest drug compared to the market
+            selectedDrug = marketDrugs.Where(d => d.SellPrice <= maxBudget).OrderBy(d => d.SellPrice).FirstOrDefault();
+        }
+        LoadMessages();
+        Debug.Log("Customer created");
         SearchForDrugsAsync();
+    }
+
+    void LoadMessages()
+    {
+        boughtMessages = Manager.Instance.LoadMessagesFromFile("boughtMessages.json");
+        notBoughtMessages = Manager.Instance.LoadMessagesFromFile("notBoughtMessages.json");
+        tooExpensiveMessages = Manager.Instance.LoadMessagesFromFile("tooExpensiveMessages.json");
+
     }
 
     public async Task SearchForDrugsAsync()
     {
-        Debug.Log("Searching for drugs..."); // Log the start of the search
-        await Task.Delay(500); // Delay for 1 second to simulate asynchronous operation
-
-        List<Drug> marketDrugs = Manager.Instance.market.AvailableDrugs;
         List<Drug> inventoryDrugs = Manager.Instance.player.Inventory;
-
         List<Drug> selectedDrugs = marketDrugs.Where(d => d.Quality == preferredQuality && d.Rarity <= preferredRarity && d.SellPrice <= maxBudget).ToList();
-
-
-        //Bought message
-        List<string> boughtMessages = new List<string>
-        {
-            //Generate 20 different messages with different humor
-            "Customer bought {0} for ${1}.",
-            "She runs away with {0} in her hands, leaving ${1} behind.",
-            "He hands over ${1} and takes {0} with a smile.",
-            "He hand you ${1} and takes {0} with a grin.",
-            "She hands you phone worth ${1} and takes {0}",
-            "He hands you a watch worth ${1} and takes {0}",
-            "Police arrives and takes {0} and leaves ${1} behind.",
-            "Hoddie man takes {0} and leaves ${1} behind.",
-            //Design more messages with different humor. create a imaginative story of the customer
-            "Weird DND character takes {0} and leaves ${1} behind.",
-            "A customer with a parrot on his shoulder takes {0} and leaves ${1} behind.",
-            "A customer with a cat in his bag takes {0} and leaves ${1} behind.",
-            "A weebo customer takes {0} and leaves ${1} behind.",
-        };
-
-        //Not bought message
-        List<string> notBoughtMessages = new List<string>
-        {
-            //Generate 20 different messages with different humor
-            "Customer did not find {0}.",
-            "She leaves without buying {0}.",
-            "He leaves without buying {0}.",
-            "With a sad face, she leaves without buying {0}.",
-            "Really? He leaves without buying {0}.",
-        };
-
-        //too expensive message
-        List<string> tooExpensiveMessages = new List<string>
-        {
-            //Generate 20 different messages with different humor
-            "Customer thinks {0} is too expensive.",
-            "She thinks {0} is too expensive.",
-            "He thinks {0} is too expensive.",
-            "With a sad face, she thinks {0} is too expensive.",
-            "Really? He thinks {0} is too expensive.",
-        };
-
         if (selectedDrugs.Count > 0)
         {
-            Drug selectedDrug = selectedDrugs[Random.Range(0, selectedDrugs.Count)];
-
-            // Log event
-            EventGenerator.Instance.log.LogEvent($"Customer looking for {selectedDrug.Name} with quality {selectedDrug.Quality} and price ${selectedDrug.SellPrice}.", EventGenerator.Instance.textPrefab);
-            await Task.Delay(500); // Delay for 0.5 seconds before checking inventory
-
             // if player has the drug that the customer is looking for or better quality, sell the drug to the customer
-            if (inventoryDrugs.Exists(d => d.Name == selectedDrug.Name && d.Quality >= selectedDrug.Quality))
+            if (inventoryDrugs.Exists(d => d.Name == selectedDrug.Name && d.Quality >= selectedDrug.Quality && d.Quantity > 0))
             {
-                //check if the price is less than the max budget
-                if (selectedDrug.SellPrice <= maxBudget * 0.6)
+                //check if the price in player's inventory is less than the max budget
+                if (inventoryDrugs.Find(d => d.Name == selectedDrug.Name && d.Quality >= selectedDrug.Quality).SellPrice <= maxBudget)
                 {
-                    Manager.Instance.market.SellDrug(selectedDrug, Manager.Instance.player);
-                    EventGenerator.Instance.log.LogEvent(string.Format(boughtMessages[Random.Range(0, boughtMessages.Count)], selectedDrug.Name, selectedDrug.SellPrice), EventGenerator.Instance.textPrefab);
+                    EventGenerator.Instance.log.LogEvent(string.Format(boughtMessages[Random.Range(0, boughtMessages.Count)], selectedDrug.Name, selectedDrug.SellPrice), "#99FF42", EventGenerator.Instance.textPrefab);
+                    Manager.Instance.market.CustomerBuy(selectedDrug, Manager.Instance.player);
                 }
                 else
                 {
-                    EventGenerator.Instance.log.LogEvent(string.Format(tooExpensiveMessages[Random.Range(0, tooExpensiveMessages.Count)], selectedDrug.Name), EventGenerator.Instance.textPrefab);
+                    //make the text red
+                    EventGenerator.Instance.log.LogEvent(string.Format(tooExpensiveMessages[Random.Range(0, tooExpensiveMessages.Count)], selectedDrug.Name), "red", EventGenerator.Instance.textPrefab);
                 }
             }
             else
             {
-                EventGenerator.Instance.log.LogEvent(string.Format(notBoughtMessages[Random.Range(0, notBoughtMessages.Count)], selectedDrug.Name), EventGenerator.Instance.textPrefab);
+                EventGenerator.Instance.log.LogEvent(string.Format(notBoughtMessages[Random.Range(0, notBoughtMessages.Count)], selectedDrug.Name), "#FFFFFF", EventGenerator.Instance.textPrefab);
             }
-
-            List<string> positiveReactions = new List<string>
-            {
-                "Customer is happy with the purchase.",
-                "Customer is satisfied with the transaction.",
-                "Customer leaves with a smile on their face.",
-                //Generate more positive reactions with more humor
-                "Customer is ecstatic about the deal.",
-                "Customer is over the moon with the purchase.",
-                "Customer is thrilled with the transaction."
-            };
-
-            List<string> negativeReactions = new List<string>
-            {
-                "Customer is not happy with the purchase.",
-                "Customer is dissatisfied with the transaction.",
-                "Customer leaves with a frown on their face.",
-                "Customer is disappointed with the deal.",
-                "Customer is upset about the purchase.",
-                "Customer is angry with the transaction."
-            };
         }
     }
 }
